@@ -1,2 +1,6 @@
-# CellProfiler-REST
-A REST API for CellProfiler Classifier
+# CellProfiler Classifier
+
+A REST-API for CellProfiler Analyst.
+
+
+
