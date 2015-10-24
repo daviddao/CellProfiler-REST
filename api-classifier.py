@@ -13,29 +13,104 @@ from flask_restful import Resource, Api, reqparse
 app = Flask(__name__)
 api = Api(app)
 
-TODOS = {
-    'todo1': {'task': 'build an API'},
-    'todo2': {'task': '?????'},
-    'todo3': {'task': 'profit!'},
-}
-
-
-def abort_if_todo_doesnt_exist(todo_id):
-    if todo_id not in TODOS:
-        abort(404, message="Todo {} doesn't exist".format(todo_id))
-
-parser = reqparse.RequestParser()
-parser.add_argument('task')
-
 
 # Init
 p = Properties.getInstance()
+#p.LoadFile('/vagrant/data/23_classes/az-dnaonly.properties')
 p.LoadFile('/vagrant/data/5_classes/2010_08_21_Malaria_MartiLab_Test_2011_05_27_DIC+Alexa.properties')
+#p.LoadFile('/vagrant/data/cpa_example/example.properties')
+
+
 db = dbconnect.DBConnect.getInstance()
 dm = DataModel.getInstance()
 
 classifier = Classifier(properties=p) # Create a classifier with p
+#classifier.LoadTrainingSet('/vagrant/data/23_classes/Anne_DNA_66.txt')
 classifier.LoadTrainingSet('/vagrant/data/5_classes/MyTrainingSet_AllStages_Half.txt')
+#classifier.LoadTrainingSet('/vagrant/data/cpa_example/MyTrainingSet.txt')
+
+# Helper methods
+
+# Structure of JSON which is sorted after table and images
+#{ img_key: { images: {image_channel_color: img_path} ,obj_key: {class: label, x: cell_x, y: cell_y}}}
+def calculateStructuredJSON():
+
+    json = {}
+    baseurl = p.image_url_prepend
+    image_channel_colors = p.image_channel_colors
+
+    if p.table_id == None:
+        json['merged_tables'] = False
+        for label,objKey in classifier.trainingSet.entries:
+            img_key = "image_" + str(objKey[0])
+            obj_key = "object_" + str(objKey[1])
+
+            if img_key not in json:
+                json[img_key] = {}
+
+            # Object key is hopefully unique for every unique image
+            json[img_key][obj_key] = {}
+            json[img_key][obj_key]['class'] = label
+            json[img_key]['images'] = {}
+
+            paths = db.GetFullChannelPathsForImage(objKey)
+            for i,color in enumerate(image_channel_colors):
+                json[img_key]['images'][color] = baseurl + paths[i]
+
+    # We need to add a table key
+    else:
+        json['merged_tables'] = True
+        for label,objKey in classifier.trainingSet.entries:
+            table_key = "table_" + str(objKey[0])
+            img_key = "image_" + str(objKey[1])
+            obj_key = "object_" + str(objKey[2])
+
+            if table_key not in json:
+                json[table_key] = {}
+            if img_key not in json[table_key]:
+                json[table_key][img_key] = {}
+            json[table_key][img_key][obj_key] = {}
+            json[table_key][img_key][obj_key]['class'] = label
+            json[table_key][img_key]['images'] = {}
+
+            paths = db.GetFullChannelPathsForImage(objKey)
+            for i,color in enumerate(image_channel_colors):
+                json[table_key][img_key]['images'][color] = baseurl + paths[i]
+
+    return json
+
+
+# each object is nested in its own JSON Object
+def calculateTrainingSetJSON():
+    json_array = [] # Array storing dicts of objects 
+    baseurl = p.image_url_prepend
+    image_channel_colors = p.image_channel_colors
+
+    
+    for label,objKey in classifier.trainingSet.entries:
+        
+        json = {}
+        if p.table_id == None:
+            json['image'] = objKey[0]
+            json['object'] = objKey[1]
+        else:
+            json['table'] = objKey[0]
+            json['image'] = objKey[1]
+            json['object'] = objKey[2]
+
+        json['class'] = label
+        paths = db.GetFullChannelPathsForImage(objKey)
+        for i,color in enumerate(image_channel_colors):
+            json[color] = baseurl + paths[i]
+
+        json_array.append(json)
+
+    return json_array
+
+
+
+# Calculate the Training DataSet and store it
+json = calculateTrainingSetJSON()
 
 # Todo
 # shows a single todo item and lets you delete a todo item
@@ -71,15 +146,32 @@ class TodoList(Resource):
 
 class TrainingSet(Resource):
     def get(self):
-        return classifier.trainingSet.label_array
+        label_array = classifier.trainingSet.label_array.tolist() # (array of class assignments)
+        labels = classifier.trainingSet.labels # (class labels)
+        colnames = classifier.trainingSet.colnames # (all column names)
+        values = classifier.trainingSet.values.tolist() # (training values)
+        entries = classifier.trainingSet.entries # (label, obKey)
 
+        return colnames + values[1] # Return col names and values for visualisation purposes
+
+# Get all the cached images from the trainingSet 
+class getImagePaths(Resource):
+    def get(self):
+        return json, 201, {'Access-Control-Allow-Origin': '*'}
+
+class helloworld(Resource):
+    def get(self):
+        return "Hello World!", 201, {'Access-Control-Allow-Origin': '*'}
+            
 
 ##
 ## Actually setup the Api resource routing here
 ##
+api.add_resource(helloworld, '/')
 api.add_resource(TodoList, '/todos')
 api.add_resource(Todo, '/todos/<todo_id>')
 api.add_resource(TrainingSet, '/')
+api.add_resource(getImagePaths, '/images')
 
 
 #Server Main Function
