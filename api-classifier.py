@@ -1,9 +1,16 @@
 from classifier_headless import *
 
+
 # For test purposes
 from cpa.properties import Properties
 import cpa.dbconnect as dbconnect
 from cpa.datamodel import DataModel
+
+# For image processing
+import cpa.imagetools as imagetools
+
+import javabridge
+import bioformats
 
 # ----------------- Run -------------------
 
@@ -13,21 +20,51 @@ from flask_restful import Resource, Api, reqparse
 app = Flask(__name__)
 api = Api(app)
 
+# Cached Object
+cached_json = {
+    "base64": False,
+    "json": ""
+}
+
+# Stores global settings
+settings = {}
+
 
 # Init
-p = Properties.getInstance()
-#p.LoadFile('/vagrant/data/23_classes/az-dnaonly.properties')
-p.LoadFile('/vagrant/data/5_classes/2010_08_21_Malaria_MartiLab_Test_2011_05_27_DIC+Alexa.properties')
-#p.LoadFile('/vagrant/data/cpa_example/example.properties')
+# p = Properties.getInstance()
+# #p.LoadFile('/vagrant/data/23_classes/az-dnaonly.properties')
+# p.LoadFile('/vagrant/data/5_classes/2010_08_21_Malaria_MartiLab_Test_2011_05_27_DIC+Alexa.properties')
+# #p.LoadFile('/vagrant/data/cpa_example/example.properties')
 
+# db = dbconnect.DBConnect.getInstance()
+# dm = DataModel.getInstance()
 
-db = dbconnect.DBConnect.getInstance()
-dm = DataModel.getInstance()
+# classifier = Classifier(properties=p) # Create a classifier with p
+# #classifier.LoadTrainingSet('/vagrant/data/23_classes/Anne_DNA_66.txt')
+# classifier.LoadTrainingSet('/vagrant/data/5_classes/MyTrainingSet_AllStages_Half.txt')
+# #classifier.LoadTrainingSet('/vagrant/data/cpa_example/MyTrainingSet.txt')
 
-classifier = Classifier(properties=p) # Create a classifier with p
-#classifier.LoadTrainingSet('/vagrant/data/23_classes/Anne_DNA_66.txt')
-classifier.LoadTrainingSet('/vagrant/data/5_classes/MyTrainingSet_AllStages_Half.txt')
-#classifier.LoadTrainingSet('/vagrant/data/cpa_example/MyTrainingSet.txt')
+# Starts CellProfiler Analyst
+def start():
+    # Init
+    p = Properties.getInstance()
+    p.LoadFile('/vagrant/data/23_classes/az-dnaonly.properties')
+    #p.LoadFile('/vagrant/data/5_classes/2010_08_21_Malaria_MartiLab_Test_2011_05_27_DIC+Alexa.properties')
+    #p.LoadFile('/vagrant/data/cpa_example/example.properties')
+
+    db = dbconnect.DBConnect.getInstance()
+    dm = DataModel.getInstance()
+
+    classifier = Classifier(properties=p) # Create a classifier with p
+    classifier.LoadTrainingSet('/vagrant/data/23_classes/Anne_DNA_66.txt')
+    #classifier.LoadTrainingSet('/vagrant/data/5_classes/MyTrainingSet_AllStages_Half.txt')
+    #classifier.LoadTrainingSet('/vagrant/data/cpa_example/MyTrainingSet.txt')
+
+    settings['p'] = p
+    settings['db'] = db
+    settings['dm'] = dm
+    settings['classifier'] = classifier
+
 
 # Helper methods
 
@@ -35,8 +72,16 @@ classifier.LoadTrainingSet('/vagrant/data/5_classes/MyTrainingSet_AllStages_Half
 #{ img_key: { images: {image_channel_color: img_path} ,obj_key: {class: label, x: cell_x, y: cell_y}}}
 def calculateStructuredJSON():
 
+    p = settings['p']
+    dm = settings['dm']
+    db = settings['db']
+    classifier = settings['classifier']
+
+
     json = {}
     baseurl = p.image_url_prepend
+    if baseurl == None:
+        baseurl = ''
     image_channel_colors = p.image_channel_colors
 
     if p.table_id == None:
@@ -80,13 +125,21 @@ def calculateStructuredJSON():
     return json
 
 
+
 # each object is nested in its own JSON Object
-def calculateTrainingSetJSON():
+def calculateTrainingSetJSON(base64=False):
+
+    p = settings['p']
+    dm = settings['dm']
+    db = settings['db']
+    classifier = settings['classifier']
+
     json_array = [] # Array storing dicts of objects 
     baseurl = p.image_url_prepend
+    if baseurl == None:
+        baseurl = ''
     image_channel_colors = p.image_channel_colors
 
-    
     for label,objKey in classifier.trainingSet.entries:
         
         json = {}
@@ -103,49 +156,77 @@ def calculateTrainingSetJSON():
         for i,color in enumerate(image_channel_colors):
             json[color] = baseurl + paths[i]
 
+        if base64:
+            from cStringIO import StringIO
+            import base64
+            # Convert to Base64
+            output = StringIO()
+            tile = imagetools.FetchTile(objKey)
+            #tile = imagetools.FetchImage(objKey)
+            im = imagetools.MergeChannels(tile,p.image_channel_colors)
+            im = imagetools.npToPIL(im)
+            im.save(output, format='JPEG')
+            im_data = output.getvalue()
+            data_url = 'data:image/jpg;base64,' + base64.b64encode(im_data)
+            json['base64'] = data_url
+
         json_array.append(json)
+
+
+    return json_array
+
+# each object is nested in its own JSON Object
+def calculateAllJSON(objKeys, base64=True):
+
+    p = settings['p']
+    dm = settings['dm']
+    db = settings['db']
+    classifier = settings['classifier']
+
+    json_array = [] # Array storing dicts of objects 
+    baseurl = p.image_url_prepend
+    if baseurl == None:
+        baseurl = ''
+    image_channel_colors = p.image_channel_colors
+
+    for objKey in objKeys:
+        
+        json = {}
+        if p.table_id == None:
+            json['image'] = objKey[0]
+            json['object'] = objKey[1]
+        else:
+            json['table'] = objKey[0]
+            json['image'] = objKey[1]
+            json['object'] = objKey[2]
+
+        paths = db.GetFullChannelPathsForImage(objKey)
+        for i,color in enumerate(image_channel_colors):
+            json[color] = baseurl + paths[i]
+
+        if base64:
+            from cStringIO import StringIO
+            import base64
+            # Convert to Base64
+            output = StringIO()
+            tile = imagetools.FetchTile(objKey)
+            #tile = imagetools.FetchImage(objKey)
+            im = imagetools.MergeChannels(tile,p.image_channel_colors)
+            im = imagetools.npToPIL(im)
+            im.save(output, format='JPEG')
+            im_data = output.getvalue()
+            data_url = 'data:image/jpg;base64,' + base64.b64encode(im_data)
+            json['base64'] = data_url
+
+        json_array.append(json)
+
 
     return json_array
 
 
-
-# Calculate the Training DataSet and store it
-json = calculateTrainingSetJSON()
-
-# Todo
-# shows a single todo item and lets you delete a todo item
-class Todo(Resource):
-    def get(self, todo_id):
-        abort_if_todo_doesnt_exist(todo_id)
-        return TODOS[todo_id]
-
-    def delete(self, todo_id):
-        abort_if_todo_doesnt_exist(todo_id)
-        del TODOS[todo_id]
-        return '', 204
-
-    def put(self, todo_id):
-        args = parser.parse_args()
-        task = {'task': args['task']}
-        TODOS[todo_id] = task
-        return task, 201
-
-
-# TodoList
-# shows a list of all todos, and lets you POST to add new tasks
-class TodoList(Resource):
-    def get(self):
-        return TODOS
-
-    def post(self):
-        args = parser.parse_args()
-        todo_id = int(max(TODOS.keys()).lstrip('todo')) + 1
-        todo_id = 'todo%i' % todo_id
-        TODOS[todo_id] = {'task': args['task']}
-        return TODOS[todo_id], 201
-
 class TrainingSet(Resource):
     def get(self):
+
         label_array = classifier.trainingSet.label_array.tolist() # (array of class assignments)
         labels = classifier.trainingSet.labels # (class labels)
         colnames = classifier.trainingSet.colnames # (all column names)
@@ -157,21 +238,71 @@ class TrainingSet(Resource):
 # Get all the cached images from the trainingSet 
 class getImagePaths(Resource):
     def get(self):
-        return json, 201, {'Access-Control-Allow-Origin': '*'}
+
+        p = settings['p']
+        dm = settings['dm']
+        db = settings['db']
+        classifier = settings['classifier']
+
+        # Quickly fetch the pics
+        if cached_json['base64'] == False:
+            cached_json['json'] = calculateTrainingSetJSON();
+
+        return cached_json['json'], 201, {'Access-Control-Allow-Origin': '*'}
+
+class getBase64(Resource):
+    def get(self):
+        if cached_json['base64'] == False:
+            # Start the virtual machine
+            javabridge.start_vm(class_path=bioformats.JARS, run_headless=True)
+            javabridge.attach()
+            javabridge.activate_awt()
+
+            # Calculate the Training DataSet and store it
+            cached_json['json'] = calculateTrainingSetJSON(base64=True)
+            cached_json['base64'] = True
+        
+        return cached_json['json']
+
+         
+class getAll(Resource):
+    def get(self):
+        total = dm.get_total_object_count()
+        objKeys = dm.GetRandomObjects(total)
+
+        # Start the virtual machine
+        javabridge.start_vm(class_path=bioformats.JARS, run_headless=True)
+        javabridge.attach()
+        javabridge.activate_awt()
+
+        return calculateAllJSON(objKeys, base64=True)
+
 
 class helloworld(Resource):
     def get(self):
-        return "Hello World!", 201, {'Access-Control-Allow-Origin': '*'}
-            
+        return "hello world!", 201, {'Access-Control-Allow-Origin': '*'}
+
+
+@app.route('/start',methods=['GET'])
+def init():
+    start()
+    return 'starting CPA'
 
 ##
 ## Actually setup the Api resource routing here
 ##
 api.add_resource(helloworld, '/')
-api.add_resource(TodoList, '/todos')
-api.add_resource(Todo, '/todos/<todo_id>')
-api.add_resource(TrainingSet, '/')
+#api.add_resource(TrainingSet, '/')
 api.add_resource(getImagePaths, '/images')
+api.add_resource(getBase64, '/base64')
+api.add_resource(getAll, '/all')
+
+
+
+
+
+
+
 
 
 #Server Main Function
