@@ -14,7 +14,7 @@ import bioformats
 
 # ----------------- Run -------------------
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_restful import Resource, Api, reqparse
 
 app = Flask(__name__)
@@ -220,6 +220,12 @@ def calculateAllJSON(objKeys, base64=True):
 
         json_array.append(json)
 
+    # Save as local file
+    import json
+    f = open('23classes.json', 'w')
+    json_string = json.dumps(json_array)
+    f.write(json_string)
+    f.close()
 
     return json_array
 
@@ -308,8 +314,19 @@ api.add_resource(getAll, '/all')
 #Server Main Function
 if __name__ == '__main__':
 
-    app.debug = True
-    app.run(host='0.0.0.0', port=5000) #Public IP
+    #app.debug = True
+    #app.run(host='0.0.0.0', port=5000) #Public IP
+
+    start()
+    # Start the virtual machine
+    javabridge.start_vm(class_path=bioformats.JARS, run_headless=True)
+    javabridge.attach()
+    javabridge.activate_awt()
+
+    # Calculate the Training DataSet and store it
+    calculateTrainingSetJSON(base64=True)
+
+
 
 
 
