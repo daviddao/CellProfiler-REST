@@ -1885,9 +1885,11 @@ class Objects(Entity):
 
 if __name__ == "__main__":
     ''' For debugging only... '''
-    import wx
-    app = wx.PySimpleApp()
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-    p.LoadFile('/Users/afraser/cpa_example/example.properties')
+    #import wx
+    #app = wx.PySimpleApp()
+    #logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    p.LoadFile('/vagrant/data/5_classes/2010_08_21_Malaria_MartiLab_Test_2011_05_27_DIC+Alexa.properties')
+
     
-    app.MainLoop()
+
+    

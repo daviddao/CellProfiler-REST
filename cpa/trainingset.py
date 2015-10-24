@@ -29,7 +29,9 @@ class TrainingSet:
         self.labels = []                # set of possible class labels (human readable)
         self.classifier_labels = []     # set of possible class labels (for classifier)
                                         #     eg: [[+1,-1,-1], [-1,+1,-1], [-1,-1,+1]]
-        self.label_matrix = []          # array of classifier labels for each sample
+        self.label_matrix = []          # n x k matrix of classifier labels for each sample
+        self.label_array = []           # n x 1 vector of classifier labels (indexed with 1) 
+                                        #     eg: [1,1,2,3,1,2] 
         self.values = []                # array of measurements (data from db) for each sample
         self.entries = []               # list of (label, obKey) pairs
 
@@ -70,6 +72,7 @@ class TrainingSet:
 
         self.label_matrix = numpy.array(self.label_matrix)
         self.values = numpy.array(self.values, np.float64)
+        self.label_array = numpy.nonzero(label_matrix + 1)[1] + 1
 
 
     def Load(self, filename, labels_only=False):

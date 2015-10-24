@@ -29,15 +29,6 @@ class GeneralClassifier(BaseEstimator, ClassifierMixin):
         self.trained = False
         self.env = env # Env is Classifier in Legacy Code -- maybe renaming ?
 
-
-
-    # A converter function for labels
-    def label2np(self, labels):
-        ## Parsing original label_matrix into numpy format
-        ## Original [-1 1] -> [0 1] (take only second?)
-        return np.nonzero(labels + 1)[1] + 1
-
-
     def CheckProgress(self):
         #import wx
         ''' Called when the Cross Validation Button is pressed. '''
@@ -156,8 +147,6 @@ class GeneralClassifier(BaseEstimator, ClassifierMixin):
     def Train(self, labels, values, fout=None):
         '''Trains classifier using values and label_array '''
 
-        labels = self.label2np(labels)
-
         self.classifier.fit(values, labels)
         self.trained = True
 
@@ -190,9 +179,6 @@ class GeneralClassifier(BaseEstimator, ClassifierMixin):
         RETURNS: array of length folds of cross validation scores
         '''
 
-        labels = self.label2np(labels)
-
-
         num_samples = values.shape[0]
         if stratified:
             CV = folds
@@ -210,10 +196,6 @@ class GeneralClassifier(BaseEstimator, ClassifierMixin):
         :param folds: number of folds
         :return: score for each fold
         '''
-
-        labels = self.label2np(labels)
-
-
         n_samples = values.shape[0]
         unique_labels, indices = np.unique(labels, return_inverse=True)
         label_counts = np.bincount(indices) #count of each class
@@ -242,9 +224,6 @@ class GeneralClassifier(BaseEstimator, ClassifierMixin):
         :param stratified: boolean whether to use stratified K fold
         :return: cross-validated estimates for each input data point
         '''
-
-        labels = self.label2np(labels)
-
         num_samples = values.shape[0]
         if stratified:
             CV = folds
